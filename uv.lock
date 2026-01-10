@@ -236,13 +236,13 @@ lossy = [
 
 [package.metadata]
 requires-dist = [
-    { name = "click", specifier = ">=8.3.1" },
+    { name = "click", specifier = ">=8.1.0" },
     { name = "mutagen", specifier = ">=1.47.0" },
-    { name = "numpy", specifier = ">=2.0.0" },
+    { name = "numpy", specifier = ">=1.24.0" },
     { name = "pydub", marker = "extra == 'lossy'", specifier = ">=0.25.1" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
-    { name = "soundfile", specifier = ">=0.13.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
+    { name = "soundfile", specifier = ">=0.12.0" },
 ]
 provides-extras = ["lossy", "dev"]
 
