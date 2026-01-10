@@ -61,6 +61,7 @@ Codec:             FLAC
 
 ### HTML Output
 [![DR Check - HTML Screenshot](https://github.com/user-attachments/assets/1f7f583f-fd2c-4483-9a96-e3e8d17a8454)](https://github.com/user-attachments/assets/64ca006a-1f59-4ae1-aab0-60375a9d3d8c)
+
 Beautiful, modern reports with:
 - Album artwork (automatically extracted)
 - Color-coded DR values (green/orange/red)
