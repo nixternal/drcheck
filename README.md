@@ -72,7 +72,15 @@ Beautiful, modern reports with:
 ## 🚀 Quick Start
 
 ### Installation
+#### PyPi
+```bash
+# pip
+pip install drcheck
 
+# pipx
+pipx install drcheck
+```
+#### Local git checkout w/ ```uv```
 ```bash
 # Clone the repository
 git clone https://github.com/nixternal/drcheck.git
