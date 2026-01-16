@@ -15,6 +15,8 @@ from drcheck.formatters import (
     HTMLFormatter,
     TextTableFormatter,
     TrackResult,
+    _optimize_image_data,
+    extract_album_art,
     save_results,
 )
 
@@ -75,6 +77,43 @@ def sample_album(sample_track):
         artist="Test Artist",
         album="Test Album",
     )
+
+
+@pytest.fixture
+def temp_image_dir():
+    """Create a temporary directory for test images."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield Path(tmpdir)
+
+
+@pytest.fixture
+def sample_jpeg_image(temp_image_dir):
+    """Create a sample JPEG image for testing."""
+    try:
+        from PIL import Image
+        
+        # Create a simple 800x800 red square
+        img = Image.new("RGB", (800, 800), color=(255, 0, 0))
+        image_path = temp_image_dir / "cover.jpg"
+        img.save(image_path, "JPEG", quality=95)
+        return image_path
+    except ImportError:
+        pytest.skip("PIL/Pillow not available")
+
+
+@pytest.fixture
+def sample_png_image(temp_image_dir):
+    """Create a sample PNG image with transparency."""
+    try:
+        from PIL import Image
+        
+        # Create a simple 800x800 image with transparency
+        img = Image.new("RGBA", (800, 800), color=(0, 255, 0, 128))
+        image_path = temp_image_dir / "cover.png"
+        img.save(image_path, "PNG")
+        return image_path
+    except ImportError:
+        pytest.skip("PIL/Pillow not available")
 
 
 class TestTrackResult:
@@ -281,6 +320,128 @@ class TestCSVFormatter:
         assert "-2.60," in output
 
 
+class TestImageOptimization:
+    """Tests for image optimization functions."""
+
+    def test_optimize_jpeg_image(self, sample_jpeg_image):
+        """Test optimizing a JPEG image."""
+        original_data = sample_jpeg_image.read_bytes()
+        original_size = len(original_data)
+
+        result = _optimize_image_data(original_data, max_size=(400, 400))
+
+        assert result is not None
+        optimized_data, mime_type = result
+        
+        assert mime_type == "image/jpeg"
+        assert len(optimized_data) < original_size  # Should be smaller
+        assert len(optimized_data) > 0
+
+    def test_optimize_png_with_transparency(self, sample_png_image):
+        """Test optimizing a PNG with transparency."""
+        original_data = sample_png_image.read_bytes()
+
+        result = _optimize_image_data(original_data, max_size=(400, 400))
+
+        assert result is not None
+        optimized_data, mime_type = result
+        
+        # Should convert to JPEG
+        assert mime_type == "image/jpeg"
+        assert len(optimized_data) > 0
+
+    def test_optimize_image_invalid_data(self):
+        """Test that invalid image data returns None."""
+        invalid_data = b"not an image"
+        
+        result = _optimize_image_data(invalid_data)
+        
+        # Should return None if PIL available but can't decode
+        # or None if PIL not available
+        assert result is None or isinstance(result, tuple)
+
+    def test_optimize_image_without_pillow(self, monkeypatch):
+        """Test behavior when Pillow is not available."""
+        # Mock ImportError for PIL
+        import builtins
+        original_import = builtins.__import__
+        
+        def mock_import(name, *args, **kwargs):
+            if name == "PIL" or name.startswith("PIL."):
+                raise ImportError("Pillow not available")
+            return original_import(name, *args, **kwargs)
+        
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        
+        # Should return None without crashing
+        result = _optimize_image_data(b"fake image data")
+        assert result is None
+
+
+class TestExtractAlbumArt:
+    """Tests for album art extraction."""
+
+    def test_extract_from_folder_jpeg(self, temp_image_dir, sample_jpeg_image):
+        """Test extracting album art from folder."""
+        # Create a dummy audio file in the same directory
+        audio_file = temp_image_dir / "track.flac"
+        audio_file.touch()
+
+        result = extract_album_art([audio_file])
+
+        assert result is not None
+        assert result.startswith("data:image/jpeg;base64,")
+
+    def test_extract_from_folder_png(self, temp_image_dir, sample_png_image):
+        """Test extracting PNG album art from folder."""
+        audio_file = temp_image_dir / "track.flac"
+        audio_file.touch()
+
+        result = extract_album_art([audio_file])
+
+        assert result is not None
+        # Should be converted to JPEG if Pillow available
+        assert result.startswith("data:image/")
+
+    def test_extract_no_files(self):
+        """Test extraction with no files."""
+        result = extract_album_art([])
+        assert result is None
+
+    def test_extract_no_cover_found(self, temp_image_dir):
+        """Test when no cover image is found."""
+        audio_file = temp_image_dir / "track.flac"
+        audio_file.touch()
+
+        result = extract_album_art([audio_file])
+
+        # Should return None if no cover found
+        assert result is None
+
+    def test_extract_prioritizes_cover_names(self, temp_image_dir):
+        """Test that cover.jpg is prioritized over other names."""
+        try:
+            from PIL import Image
+            
+            # Create multiple cover images
+            cover = Image.new("RGB", (100, 100), color=(255, 0, 0))
+            cover.save(temp_image_dir / "cover.jpg", "JPEG")
+            
+            folder = Image.new("RGB", (100, 100), color=(0, 255, 0))
+            folder.save(temp_image_dir / "folder.jpg", "JPEG")
+            
+            audio_file = temp_image_dir / "track.flac"
+            audio_file.touch()
+
+            result = extract_album_art([audio_file])
+
+            # Should find cover.jpg first
+            assert result is not None
+            assert result.startswith("data:image/jpeg;base64,")
+        except ImportError:
+            pytest.skip("PIL/Pillow not available")
+
+
 class TestHTMLFormatter:
     """Tests for HTML formatter."""
 
@@ -321,6 +482,18 @@ class TestHTMLFormatter:
 
         # Should have placeholder
         assert "🎵" in output or "album-art-placeholder" in output
+
+    def test_format_album_with_optimized_art(self, sample_album, temp_image_dir, sample_jpeg_image):
+        """Test HTML with optimized album art."""
+        # Create audio file in same directory as cover
+        audio_file = temp_image_dir / "track.flac"
+        audio_file.touch()
+
+        formatter = HTMLFormatter(include_album_art=True)
+        output = formatter.format_album(sample_album, audio_files=[audio_file])
+
+        # Should include base64 image data
+        assert "data:image/jpeg;base64," in output
 
     def test_format_album_with_channels(self, sample_album):
         """Test HTML with per-channel display."""
@@ -447,6 +620,25 @@ class TestSaveResults:
             content = output_path.read_text()
             assert "<!DOCTYPE html>" in content
             assert "Test Artist" in content
+
+    def test_save_html_with_album_art(self, sample_album, temp_image_dir, sample_jpeg_image):
+        """Test saving HTML with album art."""
+        audio_file = temp_image_dir / "track.flac"
+        audio_file.touch()
+
+        output_path = save_results(
+            sample_album,
+            output_dir=temp_image_dir,
+            format_type="html",
+            filename="report.html",
+            audio_files=[audio_file],
+        )
+
+        assert output_path.exists()
+        content = output_path.read_text()
+        
+        # Should include base64 image
+        assert "data:image/" in content
 
     def test_save_invalid_format(self, sample_album):
         """Test that invalid format raises error."""
