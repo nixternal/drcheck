@@ -61,6 +61,7 @@ Codec:             FLAC
 ```
 
 ### HTML Output
+
 [![DR Check - HTML Screenshot](https://github.com/user-attachments/assets/1f7f583f-fd2c-4483-9a96-e3e8d17a8454)](https://github.com/user-attachments/assets/64ca006a-1f59-4ae1-aab0-60375a9d3d8c)
 
 Beautiful, modern reports with:
@@ -202,6 +203,16 @@ Features:
 - Color-coded DR values
 - Complete technical information
 - Self-contained (single HTML file)
+
+> [!TIP]
+> **Optimized HTML Reports**
+> Install [Pillow](https://python-pillow.org/) to automatically resize and compress album art. This can significantly reduce the size of your HTML reports (often by 80-90%) when using high-resolution cover art.
+> ```bash
+> # Install Pillow
+> uv pip install pillow
+> # or
+> pip install pillow
+> ```
 
 #### BBCode
 Formatted for posting on audio forums.
