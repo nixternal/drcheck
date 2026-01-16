@@ -68,7 +68,7 @@ def _read_tags(filepath: Path) -> tuple[str | None, str | None]:
 class AudioData:
     """Container for decoded audio data and metadata."""
 
-    samples: NDArray[np.floating]  # Audio samples, shape (samples, channels)
+    samples: NDArray[np.float32]  # Audio samples, shape (samples, channels)
     sample_rate: int
     channels: int
     duration_seconds: float
@@ -155,7 +155,7 @@ def read_audio_file(filepath: Path | str) -> AudioData:
     try:
         # Read audio file using soundfile (libsndfile backend)
         # This handles FLAC, WAV, OGG, and many others natively
-        samples, sample_rate = sf.read(filepath, dtype="float64", always_2d=True)
+        samples, sample_rate = sf.read(filepath, dtype="float32", always_2d=True)
 
         # Try to get bit depth from file info
         try:
@@ -234,7 +234,7 @@ def _read_with_fallback(filepath: Path) -> Tuple[NDArray[np.floating], int, int 
         audio = AudioSegment.from_file(str(filepath))
 
         # Convert to numpy array
-        samples = np.array(audio.get_array_of_samples(), dtype=np.float64)
+        samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
 
         # Get bit depth
         bit_depth = audio.sample_width * 8

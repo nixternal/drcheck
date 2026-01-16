@@ -20,14 +20,14 @@ class DR14Result:
     dr14: int
     peak_db: float
     rms_db: float
-    channel_dr: NDArray[np.floating]  # Per-channel DR values
+    channel_dr: NDArray[np.float32]  # Per-channel DR values
 
     def __str__(self) -> str:
         return f"DR{self.dr14} (Peak: {self.peak_db:.2f} dB, RMS: {self.rms_db:.2f} dB)"
 
 
 def compute_dr14(
-    audio_data: NDArray[np.floating],
+    audio_data: NDArray[np.float32],
     sample_rate: int,
     block_duration: float = 3.0,
     percentile_cutoff: float = 0.2,
@@ -156,7 +156,7 @@ def compute_dr14(
     )
 
 
-def _calculate_rms(audio_block: NDArray[np.floating]) -> NDArray[np.floating]:
+def _calculate_rms(audio_block: NDArray[np.float32]) -> NDArray[np.float32]:
     """
     Calculate RMS (Root Mean Square) for audio block.
 
@@ -170,7 +170,7 @@ def _calculate_rms(audio_block: NDArray[np.floating]) -> NDArray[np.floating]:
     return np.sqrt(2.0 * np.sum(audio_block**2, axis=0) / num_samples)
 
 
-def _to_decibels(value: Union[float, np.floating], reference: float = 1.0) -> float:
+def _to_decibels(value: Union[float, np.float32], reference: float = 1.0) -> float:
     """
     Convert linear amplitude to decibels.
 

@@ -152,14 +152,14 @@ class TestReadAudioFile:
         assert audio_data.samples.min() >= -1.0
         assert audio_data.samples.max() <= 1.0
 
-    def test_samples_are_float64(self, temp_audio_dir):
-        """Test that samples are returned as float64."""
+    def test_samples_are_float32(self, temp_audio_dir):
+        """Test that samples are returned as float32."""
         wav_file = temp_audio_dir / "test.wav"
         create_test_wav(wav_file)
 
         audio_data = read_audio_file(wav_file)
 
-        assert audio_data.samples.dtype == np.float64
+        assert audio_data.samples.dtype == np.float32
 
     def test_samples_are_2d(self, temp_audio_dir):
         """Test that samples are always 2D (even for mono)."""
