@@ -4,6 +4,7 @@ Handles formatting and saving DR14 analysis results.
 """
 
 import base64
+import io
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -83,12 +84,10 @@ class AlbumResult:
         if not self.tracks:
             self.album_dr = 0
         else:
-            valid_drs = [t.dr_value for t in self.tracks if t.dr_value > 0]
-            if valid_drs:
-                # Album DR is the mean of track DRs, rounded
-                self.album_dr = round(sum(valid_drs) / len(valid_drs))
-            else:
-                self.album_dr = 0
+            # Album DR is the mean of track DRs, rounded
+            self.album_dr = round(
+                sum(t.dr_value for t in self.tracks) / len(self.tracks)
+            )
 
 
 class Formatter(Protocol):
@@ -410,15 +409,78 @@ def print_results(
         logger.warning("No results to print")
 
 
+def _optimize_image_data(
+    image_data: bytes, max_size: tuple[int, int] = (400, 400)
+) -> tuple[bytes, str] | None:
+    """
+    Optimize image data: resize and compress to JPEG.
+
+    Args:
+        image_data: Raw image bytes
+        max_size: Maximum dimensions (width, height)
+
+    Returns:
+        Tuple of (optimized_bytes, mime_type) or None if optimization fails
+    """
+    try:
+        from PIL import Image
+
+        # Open image from bytes
+        img = Image.open(io.BytesIO(image_data))
+
+        # Resize if needed
+        img.thumbnail(max_size, Image.Resampling.LANCZOS)
+
+        # Convert to RGB if necessary (for JPEG compatibility)
+        if img.mode in ("RGBA", "LA", "P"):
+            # Create white background for transparency
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "P":
+                img = img.convert("RGBA")
+            if "A" in img.mode:
+                background.paste(img, mask=img.split()[-1])  # Use alpha as mask
+                img = background
+            else:
+                img = img.convert("RGB")
+
+        # Compress to JPEG with optimization
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=85, optimize=True)
+
+        optimized_data = buffer.getvalue()
+        
+        # Log the optimization results
+        original_size = len(image_data)
+        optimized_size = len(optimized_data)
+        savings = ((original_size - optimized_size) / original_size) * 100
+        
+        logger.info(
+            f"Optimized album art: {original_size // 1024}KB → "
+            f"{optimized_size // 1024}KB ({savings:.1f}% reduction)"
+        )
+
+        return optimized_data, "image/jpeg"
+
+    except ImportError:
+        logger.debug("PIL/Pillow not available for image optimization")
+        return None
+    except Exception as e:
+        logger.debug(f"Failed to optimize image: {e}")
+        return None
+
+
 def extract_album_art(audio_files: list[Path]) -> str | None:
     """
     Extract album art from audio files or find cover image in directory.
+
+    Images are automatically resized and optimized for web display to reduce
+    HTML file size. Install Pillow for best results: pip install pillow
 
     Args:
         audio_files: List of audio file paths to check
 
     Returns:
-        Base64-encoded image data or None if no art found
+        Base64-encoded image data URI or None if no art found
     """
     if not audio_files:
         return None
@@ -441,11 +503,29 @@ def extract_album_art(audio_files: list[Path]) -> str | None:
         if cover_path.exists():
             try:
                 image_data = cover_path.read_bytes()
+                
+                # Try to optimize the image
+                optimized = _optimize_image_data(image_data)
+                if optimized:
+                    optimized_data, mime_type = optimized
+                    b64_data = base64.b64encode(optimized_data).decode("utf-8")
+                    logger.info(f"Found and optimized album art: {cover_path.name}")
+                    return f"data:{mime_type};base64,{b64_data}"
+                
+                # Fall back to original if optimization failed
+                # Warn if image is large
+                if len(image_data) > 500_000:  # 500KB
+                    logger.warning(
+                        f"Album art is large ({len(image_data) // 1024}KB). "
+                        f"Install Pillow for optimization: pip install pillow"
+                    )
+                
                 b64_data = base64.b64encode(image_data).decode("utf-8")
                 ext = cover_path.suffix.lower()
-                mime_type = "image/jpeg" if ext == ".jpg" else "image/png"
-                logger.info(f"Found album art: {cover_path.name}")
+                mime_type = "image/jpeg" if ext in {".jpg", ".jpeg"} else "image/png"
+                logger.info(f"Found album art: {cover_path.name} (unoptimized)")
                 return f"data:{mime_type};base64,{b64_data}"
+                
             except Exception as e:
                 logger.debug(f"Could not read cover image {cover_path}: {e}")
 
@@ -456,40 +536,52 @@ def extract_album_art(audio_files: list[Path]) -> str | None:
         from mutagen.id3._frames import APIC  # type: ignore
         from mutagen.mp3 import MP3  # type: ignore
 
-        for audio_file in audio_files[:1]:  # Check only first file (already checked folder)
+        for audio_file in audio_files[:3]:  # Check first 3 files
             try:
                 audio = MutagenFile(audio_file)
 
                 if audio is None:
                     continue
 
+                picture_data = None
+                mime_type = "image/jpeg"
+
                 # Handle FLAC files
                 if isinstance(audio, FLAC):
                     if hasattr(audio, "pictures") and audio.pictures:
                         picture = audio.pictures[0]
-                        b64_data = base64.b64encode(picture.data).decode("utf-8")
+                        picture_data = picture.data
                         mime_type = getattr(picture, "mime", "image/jpeg")
-                        logger.info(f"Extracted album art from {audio_file.name}")
-                        return f"data:{mime_type};base64,{b64_data}"
 
                 # Handle MP3 files
                 elif isinstance(audio, MP3):
                     if hasattr(audio, "tags") and audio.tags is not None:
                         for tag in audio.tags.values():  # type: ignore
                             if isinstance(tag, APIC):
-                                b64_data = base64.b64encode(tag.data).decode("utf-8")  # type: ignore
+                                picture_data = tag.data  # type: ignore
                                 mime_type = getattr(tag, "mime", "image/jpeg")
-                                logger.info(
-                                    f"Extracted album art from {audio_file.name}"
-                                )
-                                return f"data:{mime_type};base64,{b64_data}"
+                                break
 
                 # Handle other formats with pictures tag
                 elif hasattr(audio, "pictures") and audio.pictures:
                     picture = audio.pictures[0]
-                    b64_data = base64.b64encode(picture.data).decode("utf-8")
+                    picture_data = picture.data
                     mime_type = getattr(picture, "mime", "image/jpeg")
-                    logger.info(f"Extracted album art from {audio_file.name}")
+
+                # If we found picture data, try to optimize it
+                if picture_data:
+                    optimized = _optimize_image_data(picture_data)
+                    if optimized:
+                        optimized_data, optimized_mime = optimized
+                        b64_data = base64.b64encode(optimized_data).decode("utf-8")
+                        logger.info(
+                            f"Extracted and optimized album art from {audio_file.name}"
+                        )
+                        return f"data:{optimized_mime};base64,{b64_data}"
+                    
+                    # Fall back to unoptimized
+                    b64_data = base64.b64encode(picture_data).decode("utf-8")
+                    logger.info(f"Extracted album art from {audio_file.name} (unoptimized)")
                     return f"data:{mime_type};base64,{b64_data}"
 
             except Exception as e:
