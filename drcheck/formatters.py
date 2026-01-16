@@ -83,10 +83,12 @@ class AlbumResult:
         if not self.tracks:
             self.album_dr = 0
         else:
-            # Album DR is the mean of track DRs, rounded
-            self.album_dr = round(
-                sum(t.dr_value for t in self.tracks) / len(self.tracks)
-            )
+            valid_drs = [t.dr_value for t in self.tracks if t.dr_value > 0]
+            if valid_drs:
+                # Album DR is the mean of track DRs, rounded
+                self.album_dr = round(sum(valid_drs) / len(valid_drs))
+            else:
+                self.album_dr = 0
 
 
 class Formatter(Protocol):
