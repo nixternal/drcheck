@@ -9,12 +9,10 @@ from datetime import datetime
 from pathlib import Path
 
 import click
-from drcheck.analysis import compute_dr14
 from drcheck.audio import (
     AudioData,
     find_audio_files,
     is_supported_file,
-    read_audio_file,
 )
 from drcheck.formatters import (
     AlbumResult,
@@ -22,6 +20,7 @@ from drcheck.formatters import (
     print_results,
     save_results,
 )
+from drcheck.parallel import ParallelAnalyzer, get_default_workers
 from drcheck.__version__ import __version__
 
 
@@ -85,6 +84,13 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool, version: bool) -> None:
     default="dr.txt",
     help="Output filename (default: dr.txt, auto-adjusts extension)",
 )
+@click.option(
+    "-j",
+    "--workers",
+    type=int,
+    default=None,
+    help="Parallel workers (auto: sequential for <20 files, parallel for larger jobs)",
+)
 def analyze(
     paths: tuple[Path, ...],
     recursive: bool,
@@ -93,6 +99,7 @@ def analyze(
     output: Path | None,
     output_format: str,
     filename: str,
+    workers: int | None,
 ) -> None:
     """
     Analyze audio files and calculate DR14 values.
@@ -145,18 +152,43 @@ def analyze(
 
     click.echo(f"Found {len(files_to_process)} file(s) to analyze\n")
 
-    # Process each file
+    # Smart worker selection: avoid multiprocessing overhead for small jobs
+    # Threshold of 20 files balances overhead vs parallelization benefit
+    PARALLEL_THRESHOLD = 20
+
+    if workers is not None:
+        # User explicitly set workers - respect their choice
+        effective_workers = workers
+    elif len(files_to_process) < PARALLEL_THRESHOLD:
+        # Small job - sequential is more efficient (avoids IPC overhead)
+        effective_workers = 1
+    else:
+        # Large job - use parallel processing
+        effective_workers = get_default_workers()
+
+    if effective_workers > 1:
+        click.echo(f"Using {effective_workers} parallel workers\n")
+
+    analyzer = ParallelAnalyzer(workers=effective_workers)
+
+    # Progress callback for parallel processing
+    def progress_callback(completed: int, total: int, filepath: Path, success: bool) -> None:
+        status = "✓" if success else "✗"
+        click.echo(f"[{completed}/{total}] {status} {filepath.name}")
+
+    # Process files (parallel or sequential based on workers)
+    results = analyzer.analyze_files(files_to_process, progress_callback)
+
+    # Collect results
     track_results: list[TrackResult] = []
     failed: list[tuple[Path, str]] = []
     artist: str | None = None
     album_name: str | None = None
 
-    for i, filepath in enumerate(files_to_process, 1):
-        click.echo(f"[{i}/{len(files_to_process)}] Processing: {filepath.name}")
-
-        try:
-            # Read audio
-            audio_data: AudioData = read_audio_file(filepath)
+    for result in results:
+        if result.success and result.audio_data and result.dr_result:
+            audio_data = result.audio_data
+            dr_result = result.dr_result
 
             # Capture artist/album from first track that has them
             if artist is None and audio_data.artist:
@@ -164,13 +196,10 @@ def analyze(
             if album_name is None and audio_data.album:
                 album_name = audio_data.album
 
-            # Calculate DR14
-            result = compute_dr14(audio_data.samples, audio_data.sample_rate)
-
             # Create track result
             track_result = TrackResult.from_dr14_result(
-                filepath=filepath,
-                result=result,
+                filepath=result.filepath,
+                result=dr_result,
                 duration=audio_data.duration_seconds,
                 sample_rate=audio_data.sample_rate,
                 channels=audio_data.channels,
@@ -179,20 +208,20 @@ def analyze(
             )
             track_results.append(track_result)
 
-            # Display quick results
+            # Display results for this track
             click.echo(
-                f"  DR{result.dr14:<2} | Peak: {result.peak_db:>6.2f} dB | RMS: {result.rms_db:>6.2f} dB"
+                f"  DR{dr_result.dr14:<2} | Peak: {dr_result.peak_db:>6.2f} dB | "
+                f"RMS: {dr_result.rms_db:>6.2f} dB"
             )
 
-            if show_channels and len(result.channel_dr) > 1:
+            if show_channels and len(dr_result.channel_dr) > 1:
                 channel_info = " | ".join(
-                    f"Ch{i + 1}: DR{dr:.2f}" for i, dr in enumerate(result.channel_dr)
+                    f"Ch{i + 1}: DR{dr:.2f}"
+                    for i, dr in enumerate(dr_result.channel_dr)
                 )
                 click.echo(f"       {channel_info}")
-
-        except Exception as e:
-            click.echo(f"  ❌ Failed: {e}", err=True)
-            failed.append((filepath, str(e)))
+        else:
+            failed.append((result.filepath, result.error or "Unknown error"))
 
     # Create album result
     if track_results:

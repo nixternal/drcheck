@@ -1,6 +1,6 @@
 [project]
 name = "drcheck"
-version = "1.0.0"
+version = "1.1.0"
 description = "Dynamic Range Analyzer - Fight the Loudness War"
 readme = "README.md"
 requires-python = ">=3.10"

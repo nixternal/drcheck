@@ -96,22 +96,25 @@ def compute_dr14(
         rms_blocks[-1, :] = _calculate_rms(final_block)
         peak_blocks[-1, :] = np.max(np.abs(final_block), axis=0)
 
-    # Sort blocks by their values (ascending)
-    rms_blocks = np.sort(rms_blocks, axis=0)
-    peak_blocks = np.sort(peak_blocks, axis=0)
-
     # Calculate how many of the loudest blocks to use
     num_top_blocks = max(1, int(np.floor(num_blocks * percentile_cutoff)))
 
-    # Get indices for top blocks
-    top_block_indices = range(num_blocks - num_top_blocks, num_blocks)
+    # Use np.partition for O(n) instead of O(n log n) full sort
+    # We only need the top percentile, not full sorted order
+    partition_idx = num_blocks - num_top_blocks
+
+    # Partition RMS blocks - values at partition_idx and above are the largest
+    rms_partitioned = np.partition(rms_blocks, partition_idx, axis=0)
+    top_rms_blocks = rms_partitioned[partition_idx:, :]
 
     # Calculate mean RMS of top blocks
-    rms_squared_sum = np.sum(rms_blocks[top_block_indices, :] ** 2, axis=0)
+    rms_squared_sum = np.sum(top_rms_blocks**2, axis=0)
     mean_rms_top = np.sqrt(rms_squared_sum / num_top_blocks)
 
-    # Use second-highest peak (to avoid outliers/clipping)
-    second_highest_peak = peak_blocks[-2, :]
+    # Partition peak blocks to find second-highest (avoid outliers/clipping)
+    # Partition at -2 position to get the second highest value
+    peak_partitioned = np.partition(peak_blocks, -2, axis=0)
+    second_highest_peak = peak_partitioned[-2, :]
 
     # Calculate DR per channel: -20 * log10(rms / peak)
     # Check for invalid values before calculation

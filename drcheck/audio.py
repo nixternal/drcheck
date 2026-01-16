@@ -7,7 +7,6 @@ import logging
 from dataclasses import dataclass
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Tuple
 
 import numpy as np
 import soundfile as sf
@@ -68,7 +67,7 @@ def _read_tags(filepath: Path) -> tuple[str | None, str | None]:
 class AudioData:
     """Container for decoded audio data and metadata."""
 
-    samples: NDArray[np.float32]  # Audio samples, shape (samples, channels)
+    samples: NDArray[np.float32] | None  # Audio samples, shape (samples, channels)
     sample_rate: int
     channels: int
     duration_seconds: float
@@ -206,7 +205,7 @@ def read_audio_file(filepath: Path | str) -> AudioData:
     )
 
 
-def _read_with_fallback(filepath: Path) -> Tuple[NDArray[np.floating], int, int | None]:
+def _read_with_fallback(filepath: Path) -> tuple[NDArray[np.floating], int, int | None]:
     """
     Fallback reader for formats not supported by libsndfile (MP3, M4A).
 

@@ -327,10 +327,7 @@ class TestAudioReadError:
         with pytest.raises(AudioReadError):
             read_audio_file(fake_wav)
 
+    @pytest.mark.skip(reason="Difficult to test without specific environment setup")
     def test_unsupported_format_with_pydub_unavailable(self, temp_audio_dir):
         """Test that UnsupportedFormatError is raised for formats needing pydub."""
-        # This test only works if pydub is not installed
-        # MP3 files would need pydub, so if we had an MP3 file and no pydub,
-        # it should raise UnsupportedFormatError
-        # Note: This is hard to test without actually having an MP3 file
         pass

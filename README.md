@@ -14,15 +14,16 @@ Fight the [Loudness War](http://en.wikipedia.org/wiki/Loudness_war) by analyzing
 - 🎨 **Beautiful HTML Reports** - Modern, responsive design with automatic album art extraction
 - 📊 **Multiple Output Formats** - Text tables, BBCode (for forums), CSV, and HTML
 - 🔍 **Batch Processing** - Analyze entire albums or recursively scan music libraries
+- ⚡ **Parallel Processing** - Multi-core support for high-speed library analysis
 - 🎵 **Metadata Support** - Extracts artist, album, sample rate, bit depth, and format info
 - ⚡ **Fast & Modern** - Clean Python 3.10+ codebase with type hints
-- 🧪 **Well Tested** - Comprehensive test suite with 66+ passing tests
+- 🧪 **Well Tested** - Comprehensive test suite with 81+ passing tests
 
 ## 📸 Screenshots
 
 ### Text Output
 ```
-DR Check - Dynamic Range Analyzer v1.0.0
+DR Check - Dynamic Range Analyzer v1.1.0
 log date: 2026-01-10 10:40:05
 
 --------------------------------------------------------------------------------
@@ -130,6 +131,7 @@ drcheck analyze [OPTIONS] PATHS...
 - `-o, --output DIR` - Output directory (default: source directory)
 - `--format FORMAT` - Output format: `text`, `bbcode`, `csv`, `html` (default: text)
 - `--filename NAME` - Output filename (default: dr.txt, auto-adjusts extension)
+- `-j, --workers N` - Number of parallel workers (auto-selects based on job size)
 
 **Examples:**
 
@@ -151,6 +153,9 @@ drcheck analyze stereo_file.flac --show-channels
 
 # Multiple paths
 drcheck analyze album1/ album2/ single.flac
+
+# Parallel processing with 4 workers
+drcheck analyze -r music_library/ -j 4
 ```
 
 #### `scan`
@@ -286,11 +291,13 @@ drcheck/
 │   ├── analysis.py       # Core DR14 calculation
 │   ├── audio.py          # Audio file reading
 │   ├── cli.py            # Command-line interface
-│   └── formatters.py     # Output formatting
+│   ├── formatters.py     # Output formatting
+│   └── parallel.py       # Parallel processing
 ├── tests/                # Test suite
 │   ├── test_analysis.py
 │   ├── test_audio.py
-│   └── test_formatters.py
+│   ├── test_formatters.py
+│   └── test_parallel.py
 ├── README.md
 └── pyproject.toml
 ```
@@ -299,7 +306,7 @@ drcheck/
 
 - ✅ Full type hints (pyright compliant)
 - ✅ Modern Python 3.10+ features
-- ✅ Comprehensive test coverage (66+ tests)
+- ✅ Comprehensive test coverage (81+ tests)
 - ✅ Clean, documented code
 - ✅ Follows Python best practices
 
