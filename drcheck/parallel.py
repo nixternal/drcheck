@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from drcheck import audio
 from drcheck.analysis import DR14Result, compute_dr14
 from drcheck.audio import AudioData, read_audio_file
 
@@ -60,12 +61,23 @@ def _analyze_single_file(task: AnalysisTask) -> AnalysisResult:
         # Compute DR14
         dr_result = compute_dr14(audio_data.samples, audio_data.sample_rate)
 
-        # Clear samples to save memory before returning to main process
-        audio_data.samples = None
+        # Create lightweight metadata-only AudioData (no samples) instead of
+        # just setting audio_data.samples = None - Memory Leak Fix
+        metadata_only = AudioData(
+            samples=None,  # Don't include samples
+            sample_rate=audio_data.sample_rate,
+            channels=audio_data.channels,
+            duration_seconds=audio_data.duration_seconds,
+            filepath=audio_data.filepath,
+            bit_depth=audio_data.bit_depth,
+            format_name=audio_data.format_name,
+            artist=audio_data.artist,
+            album=audio_data.album,
+        )
 
         return AnalysisResult(
             filepath=task.filepath,
-            audio_data=audio_data,
+            audio_data=metadata_only,
             dr_result=dr_result,
             error=None,
             index=task.index,
@@ -158,8 +170,7 @@ class ParallelAnalyzer:
         """Analyze files in parallel using ProcessPoolExecutor."""
         total = len(files)
         tasks = [
-            AnalysisTask(filepath=f, index=i, total=total)
-            for i, f in enumerate(files)
+            AnalysisTask(filepath=f, index=i, total=total) for i, f in enumerate(files)
         ]
 
         # Pre-allocate results list to maintain order
