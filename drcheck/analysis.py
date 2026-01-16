@@ -111,10 +111,14 @@ def compute_dr14(
     rms_squared_sum = np.sum(top_rms_blocks**2, axis=0)
     mean_rms_top = np.sqrt(rms_squared_sum / num_top_blocks)
 
-    # Partition peak blocks to find second-highest (avoid outliers/clipping)
-    # Partition at -2 position to get the second highest value
-    peak_partitioned = np.partition(peak_blocks, -2, axis=0)
-    second_highest_peak = peak_partitioned[-2, :]
+    if num_blocks < 2:
+        # Use the single highest peak instead
+        second_highest_peak = np.max(peak_blocks, axis=0)
+    else:
+        # Partition peak blocks to find second-highest (avoid outliers/clipping)
+        # Partition at -2 position to get the second highest value
+        peak_partitioned = np.partition(peak_blocks, -2, axis=0)
+        second_highest_peak = peak_partitioned[-2, :]
 
     # Calculate DR per channel: -20 * log10(rms / peak)
     # Check for invalid values before calculation
