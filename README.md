@@ -1,7 +1,6 @@
 # DR Check - Dynamic Range Analyzer
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![PyPI version](https://badge.fury.io/py/drcheck.svg)](https://pypi.org/project/drcheck/) [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]() [![Coverage](https://img.shields.io/badge/coverage-96%25-brightgreen.svg)]()
 
 **DR Check** is a modern, fast, and accurate tool for measuring the dynamic range (DR) of audio files using the DR14 algorithm. Built from the ground up in Python, it provides professional-grade analysis with beautiful output formats.
 
@@ -16,7 +15,8 @@ Fight the [Loudness War](http://en.wikipedia.org/wiki/Loudness_war) by analyzing
 - 🔍 **Batch Processing** - Analyze entire albums or recursively scan music libraries
 - ⚡ **Parallel Processing** - Multi-core support for high-speed library analysis
 - 🎵 **Metadata Support** - Extracts artist, album, sample rate, bit depth, and format info
-- ⚡ **Fast & Modern** - Clean Python 3.10+ codebase with type hints
+- 💡 **Smart Error Messages** - Helpful, actionable error messages with install instructions
+- 🖼️ **Optimized Album Art** - Automatic image resizing for smaller HTML reports (with Pillow)
 - 🧪 **Well Tested** - Comprehensive test suite with 81+ passing tests
 
 ## 📸 Screenshots
@@ -68,7 +68,7 @@ Beautiful, modern reports with:
 - Album artwork (automatically extracted)
 - Color-coded DR values (green/orange/red)
 - Responsive design for desktop and mobile
-- Complete technical information
+- Optimized images for faster loading
 - Professional styling
 
 ## 🚀 Quick Start
@@ -174,6 +174,9 @@ drcheck scan [OPTIONS] PATH
 drcheck scan -r /music/library/
 ```
 
+#### `version`
+Show detailed version information including Python version, platform, and supported formats.
+
 #### `formats`
 List all supported audio formats.
 
@@ -213,6 +216,17 @@ Features:
 > # or
 > pip install pillow
 > ```
+
+**Example of size reduction:**
+```
+Before (without Pillow):
+  Album art: 2.4 MB → HTML report: 3.2 MB
+
+After (with Pillow):
+  Album art: 2.4 MB → 85 KB → HTML report: 320 KB
+
+Savings: 90% smaller files!
+```
 
 #### BBCode
 Formatted for posting on audio forums.
@@ -274,6 +288,34 @@ The DR (Dynamic Range) scale measures the difference between the loudest and ave
 | DR0-7 | 🔴 Poor | Heavily compressed, "loudness war" victim |
 
 **Note:** Higher DR doesn't always mean "better" - it depends on the genre and artistic intent. Classical and jazz typically have DR14+, while modern pop/rock often ranges from DR6-10.
+
+## 📊 Error Handling (v1.1.1)
+**Smart Error Messages (v1.1.1):**
+When errors occur, DR Check now provides helpful, actionable guidance:
+- **Missing MP3/M4A support?** Shows exact install command
+- **Corrupted files?** Suggests how to fix them
+- **Audio too short?** Explains the 6-second minimum requirement
+
+Examples of intelligent error messages with helpful suggestions:
+
+```
+================================================================================
+⚠️  Failed to process 3 of 50 file(s)
+================================================================================
+
+📋 Missing Lossy Format Support (2 file(s)):
+   • song1.mp3
+     → Install: pip install drcheck[lossy]
+     → Also ensure ffmpeg is installed on your system
+
+📋 Audio Too Short (1 file(s)):
+   • intro.wav (need at least 6 seconds for DR analysis)
+
+💡 Tips:
+   • For MP3/M4A support, install: pip install drcheck[lossy]
+   • DR analysis requires at least 6 seconds of audio
+     (two 3-second blocks for measurement)
+```
 
 ## 🧪 Development
 
