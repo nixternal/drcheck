@@ -4,6 +4,7 @@ Main entry point for the DR14 meter application.
 """
 
 import logging
+import platform
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -552,6 +553,40 @@ def formats() -> None:
         click.echo()
 
     click.echo(f"Total: {len(extensions)} format(s)")
+
+
+@cli.command()
+def version() -> None:
+    """Show version information and system details"""
+    from drcheck.audio import get_supported_extensions
+
+    click.echo(f"DR Check v{__version__}")
+    click.echo("Dynamic Range Analyzer")
+    click.echo()
+
+    # Show Python version
+    click.echo(f"Python: {platform.python_version()}")
+    click.echo(f"Platform: {platform.system()} {platform.machine()}")
+    click.echo()
+
+    # Show supported formats
+    extensions = get_supported_extensions()
+
+    # Categorize formats
+    lossless = {".flac", ".wav", ".aiff", ".aif", ".aifc"}
+    lossy = {".mp3", ".m4a", ".mp4", ".aac", ".ogg", ".oga", ".opus"}
+
+    supported_lossless = sorted(extensions & lossless)
+    supported_lossy = sorted(extensions & lossy)
+
+    click.echo("Supported formats:")
+    if supported_lossless:
+        click.echo(f"  Lossless: {', '.join(supported_lossless)}")
+    if supported_lossy:
+        click.echo(f"  Lossy: {', '.join(supported_lossy)}")
+
+    click.echo()
+    click.echo("https://github.com/nixternal/drcheck")
 
 
 def main() -> None:
