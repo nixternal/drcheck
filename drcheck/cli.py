@@ -9,8 +9,12 @@ from datetime import datetime
 from pathlib import Path
 
 import click
+
+from drcheck.__version__ import __version__
 from drcheck.audio import (
     AudioData,
+    AudioReadError,
+    UnsupportedFormatError,
     find_audio_files,
     is_supported_file,
 )
@@ -21,7 +25,6 @@ from drcheck.formatters import (
     save_results,
 )
 from drcheck.parallel import ParallelAnalyzer, get_default_workers
-from drcheck.__version__ import __version__
 
 
 # Setup logging
@@ -35,6 +38,89 @@ def setup_logging(verbose: bool = False, quiet: bool = False) -> None:
         level = logging.INFO
 
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
+
+
+def format_error_message(filepath: Path, error: str) -> tuple[str, str]:
+    """
+    Format error message with helpful suggestion based on error type.
+
+    Args:
+        filepath: Path that caused the error
+        error: Error message string
+
+    Returns:
+        Tuple of (error_category, formatted_message)
+    """
+    error_lower = error.lower()
+    filename = filepath.name
+    ext = filepath.suffix.upper()
+
+    # File not found errors
+    if "not found" in error_lower or "no such file" in error_lower:
+        return ("File Not Found", f"{filename}")
+
+    # Permission/access errors
+    if "permission" in error_lower or "access" in error_lower:
+        return ("Permission Denied", f"{filename} (check file permissions)")
+
+    # Format/codec errors
+    if (
+        "format" in error_lower
+        or "codec" in error_lower
+        or "unsupported" in error_lower
+    ):
+        if ext in {".MP3", ".M4A", ".AAC", ".WMA"}:
+            return (
+                "Missing Lossy Format Support",
+                f"{filename}\n"
+                f"     → Install: pip install drcheck[lossy]\n"
+                f"     → Also ensure ffmpeg is installed on your system",
+            )
+        return (
+            "Unsupported Format",
+            f"{filename} ({ext} format not supported or file corrupted)",
+        )
+
+    # Corrupted file errors
+    if (
+        "corrupted" in error_lower
+        or "invalid" in error_lower
+        or "decode" in error_lower
+    ):
+        return ("Corrupted File", f"{filename} (file appears corrupted or invalid)")
+
+    # Audio too short errors
+    if "too short" in error_lower:
+        return (
+            "Audio Too Short",
+            f"{filename} (need at least 6 seconds for DR analysis)",
+        )
+
+    # Memory errors
+    if "memory" in error_lower:
+        return ("Memory Error", f"{filename} (file too large or insufficient memory)")
+
+    # Generic errors
+    return ("Error", f"{filename}: {error}")
+
+
+def show_processing_summary(total_files: int, successful: int, failed: int) -> None:
+    """
+    Display a summary of processing results.
+
+    Args:
+        total_files: Total number of files attempted
+        successful: Number of successfully processed files
+        failed: Number of failed files
+    """
+    click.echo(f"\n{'=' * 80}")
+    click.echo(f"Processing Summary: {successful}/{total_files} files successful")
+    click.echo(f"{'=' * 80}")
+
+    if failed > 0:
+        click.echo(f"❌ {failed} file(s) failed")
+    if successful > 0:
+        click.echo(f"✅ {successful} file(s) processed successfully")
 
 
 @click.group(invoke_without_command=True)
@@ -120,6 +206,15 @@ def analyze(
       drcheck analyze album/ --save --format bbcode
 
       drcheck analyze album/ --format csv > results.csv
+
+      drcheck analyze album/ -j 4  # Use 4 parallel workers
+
+    \b
+    Notes:
+      * for MP3/M4A support: pip install drcheck[lossy]
+      * for optimized HTML reports: pip install drcheck[html]
+      * Files are processed in parallel for large jobs (20+ files)
+      * Use -j 1 to force sequential processing
     """
     # Collect all audio files to process
     files_to_process: list[Path] = []
@@ -132,7 +227,17 @@ def analyze(
                 if base_directory is None:
                     base_directory = path.parent
             else:
-                click.echo(f"Skipping unsupported file: {path}", err=True)
+                ext = path.suffix.upper()
+                if ext in {".MP3", ".M4A", ".AAC", ".WMA"}:
+                    click.echo(
+                        f"⚠️  Skipping {ext}: {path.name}\n"
+                        f"    Install lossy format support: pip install drcheck[lossy]",
+                        err=True,
+                    )
+                else:
+                    click.echo(
+                        f"⚠️  Skipping unsupported format: {path.name} ({ext})", err=True
+                    )
         elif path.is_dir():
             found_files = find_audio_files(path, recursive=recursive)
             if not found_files:
@@ -141,7 +246,11 @@ def analyze(
             if base_directory is None:
                 base_directory = path
         else:
-            click.echo(f"Invalid path: {path}", err=True)
+            click.echo(
+                f"❌ Invalid path: {path}\n"
+                f"    Path must be an existing file or directory",
+                err=True,
+            )
 
     if not files_to_process:
         click.echo("No audio files to process", err=True)
@@ -171,10 +280,22 @@ def analyze(
 
     analyzer = ParallelAnalyzer(workers=effective_workers)
 
-    # Progress callback for parallel processing
-    def progress_callback(completed: int, total: int, filepath: Path, success: bool) -> None:
-        status = "✓" if success else "✗"
-        click.echo(f"[{completed}/{total}] {status} {filepath.name}")
+    # Track processing statistics
+    processing_stats = {"successful": 0, "failed": 0}
+
+    def progress_callback(
+        completed: int, total: int, filepath: Path, success: bool
+    ) -> None:
+        """Updated progress display"""
+        status = "✅" if success else "❌"
+        percentage = (completed / total) * 100
+        click.echo(
+            f"[{completed}/{total} - {percentage:5.1f}%] {status} {filepath.name}"
+        )
+        if success:
+            processing_stats["successful"] += 1
+        else:
+            processing_stats["failed"] += 1
 
     # Process files (parallel or sequential based on workers)
     results = analyzer.analyze_files(files_to_process, progress_callback)
@@ -184,6 +305,7 @@ def analyze(
     failed: list[tuple[Path, str]] = []
     artist: str | None = None
     album_name: str | None = None
+    total_processed = 0
 
     for result in results:
         if result.success and result.audio_data and result.dr_result:
@@ -210,7 +332,7 @@ def analyze(
 
             # Display results for this track
             click.echo(
-                f"  DR{dr_result.dr14:<2} | Peak: {dr_result.peak_db:>6.2f} dB | "
+                f"    DR{dr_result.dr14:<2} | Peak: {dr_result.peak_db:>6.2f} dB | "
                 f"RMS: {dr_result.rms_db:>6.2f} dB"
             )
 
@@ -219,7 +341,9 @@ def analyze(
                     f"Ch{i + 1}: DR{dr:.2f}"
                     for i, dr in enumerate(dr_result.channel_dr)
                 )
-                click.echo(f"       {channel_info}")
+                click.echo(f"         {channel_info}")
+
+            total_processed += 1
         else:
             failed.append((result.filepath, result.error or "Unknown error"))
 
@@ -236,14 +360,14 @@ def analyze(
 
         # Display formatted output (skip for HTML as it's too verbose)
         click.echo("\n")
-        if output_format != "html":
+        if output_format == "html":
+            click.echo("HTML report generated (use --save to write to file)")
+        else:
             print_results(
                 album=album_result,
                 format_type=output_format,
                 show_channels=show_channels,
             )
-        else:
-            click.echo("HTML report generated (use --save to write to file)")
 
         # Save to file if requested
         if save:
@@ -260,12 +384,101 @@ def analyze(
 
     # Show failures if any
     if failed:
-        click.echo(f"\n❌ Failed to process: {len(failed)} file(s)", err=True)
-        for filepath, error in failed:
-            click.echo(f"  {filepath.name}: {error}", err=True)
-        sys.exit(1)
+        click.echo(f"\n{'=' * 80}", err=True)
+        click.echo(
+            f"⚠️  Failed to process {len(failed)} of {len(files_to_process)} file(s)",
+            err=True,
+        )
+        click.echo(f"{'=' * 80}\n", err=True)
 
-    click.echo()
+        # Group errors by category for better presentation
+        error_groups: dict[str, list[tuple[Path, str]]] = {}
+        for filepath, error in failed:
+            category, formatted_msg = format_error_message(filepath, error)
+
+            if category not in error_groups:
+                error_groups[category] = []
+            error_groups[category].append((filepath, formatted_msg))
+
+        # Display grouped errors with helpful context
+        for category, file_errors in sorted(error_groups.items()):
+            click.echo(f"📋 {category} ({len(file_errors)} file(s)):", err=True)
+            for filepath, formatted_msg in file_errors:
+                # Indent multi-line messages properly
+                lines = formatted_msg.split("\n")
+                click.echo(f"   • {lines[0]}", err=True)
+                for line in lines[1:]:
+                    click.echo(f"     {line}", err=True)
+            click.echo("", err=True)  # Blank line between categories
+
+        click.echo(f"{'=' * 80}", err=True)
+
+        # Provide helpful suggestions based on error types
+        has_lossy_errors = "Missing Lossy Format Support" in error_groups
+        has_corrupted = "Corrupted File" in error_groups
+        has_short_audio = "Audio Too Short" in error_groups
+
+        # Show actionable tips
+        if has_lossy_errors or has_corrupted or has_short_audio:
+            click.echo("\n💡 Tips:", err=True)
+
+            if has_lossy_errors:
+                click.echo(
+                    "   • For MP3/M4A support, install:\n"
+                    "     pip install drcheck[lossy]\n"
+                    "     Also ensure ffmpeg is installed on your system",
+                    err=True,
+                )
+
+            if has_corrupted:
+                click.echo(
+                    "   • Corrupted files may need to be:\n"
+                    "     - Re-downloaded from original source\n"
+                    "     - Re-ripped from CD\n"
+                    "     - Converted to a different format",
+                    err=True,
+                )
+
+            if has_short_audio:
+                click.echo(
+                    "   • DR analysis requires at least 6 seconds of audio\n"
+                    "     (two 3-second blocks for measurement)",
+                    err=True,
+                )
+
+        # Summary statistics
+        click.echo(f"\n{'=' * 80}", err=True)
+        if total_processed > 0:
+            success_rate = (total_processed / len(files_to_process)) * 100
+            click.echo(
+                f"✅ Successfully processed: {total_processed}/{len(files_to_process)} "
+                f"({success_rate:.1f}%)",
+                err=True,
+            )
+        else:
+            click.echo("❌ No files were successfully processed", err=True)
+
+        click.echo(f"{'=' * 80}", err=True)
+
+        # Show help hint
+        click.echo("\n💬 Need help? Run: drcheck --help", err=True)
+        click.echo(
+            "🐛 Found a bug? Report at: https://github.com/nixternal/drcheck/issues\n",
+            err=True,
+        )
+
+        # Exit with error code only if ALL files failed
+        if total_processed == 0:
+            sys.exit(1)
+        else:
+            # Partial success - show warning but don't exit with error
+            click.echo(f"⚠️  Completed with {len(failed)} error(s)\n", err=True)
+    else:
+        # All files successful
+        if total_processed > 0:
+            click.echo(f"\n✅ Successfully analyzed all {total_processed} file(s)")
+
+    click.echo()  # Final blank line
 
 
 @cli.command()
